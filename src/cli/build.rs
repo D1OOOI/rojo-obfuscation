@@ -12,6 +12,7 @@ use roblox_install::RobloxStudio;
 use tokio::runtime::Runtime;
 
 use crate::serve_session::ServeSession;
+use crate::obfuscator::initialize_prometheus;
 
 use super::resolve_path;
 
@@ -38,6 +39,10 @@ pub struct BuildCommand {
     /// Should end in .rbxm or .rbxl.
     #[clap(long, short, conflicts_with = "output")]
     pub plugin: Option<PathBuf>,
+
+    /// Obfuscation
+    #[clap(long)]
+    pub obfuscation: bool,
 
     /// Whether to automatically rebuild when any input files change.
     #[clap(long)]
@@ -81,7 +86,8 @@ impl BuildCommand {
         let vfs = Vfs::new_default();
         vfs.set_watch_enabled(self.watch);
 
-        let session = ServeSession::new(vfs, project_path)?;
+        initialize_prometheus()?; // fuck this idk
+        let session = ServeSession::new(vfs, project_path, Some(self.obfuscation))?;
         let mut cursor = session.message_queue().cursor();
 
         write_model(&session, &output_path, output_kind)?;

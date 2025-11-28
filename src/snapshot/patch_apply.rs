@@ -15,12 +15,13 @@ use super::{
     InstanceSnapshot, RojoTree,
 };
 use crate::{multimap::MultiMap, RojoRef, REF_ID_ATTRIBUTE_NAME, REF_POINTER_ATTRIBUTE_PREFIX};
+use crate::obfuscator::obfuscate;
 
 /// Consumes the input `PatchSet`, applying all of its prescribed changes to the
 /// tree and returns an `AppliedPatchSet`, which can be used to keep another
 /// tree in sync with Rojo's.
 #[profiling::function]
-pub fn apply_patch_set(tree: &mut RojoTree, patch_set: PatchSet) -> AppliedPatchSet {
+pub fn apply_patch_set(tree: &mut RojoTree, patch_set: PatchSet, obfuscation: Option<bool>) -> AppliedPatchSet {
     let mut context = PatchApplyContext::default();
 
     {
@@ -33,7 +34,7 @@ pub fn apply_patch_set(tree: &mut RojoTree, patch_set: PatchSet) -> AppliedPatch
     {
         profiling::scope!("additions");
         for add_patch in patch_set.added_instances {
-            apply_add_child(&mut context, tree, add_patch.parent_id, add_patch.instance);
+            apply_add_child(&mut context, tree, add_patch.parent_id, add_patch.instance, obfuscation);
         }
     }
 
@@ -42,7 +43,7 @@ pub fn apply_patch_set(tree: &mut RojoTree, patch_set: PatchSet) -> AppliedPatch
         // Updates need to be applied after additions, which reduces the complexity
         // of updates significantly.
         for update_patch in patch_set.updated_instances {
-            apply_update_child(&mut context, tree, update_patch);
+            apply_update_child(&mut context, tree, update_patch, obfuscation);
         }
     }
 
@@ -142,6 +143,7 @@ fn apply_add_child(
     tree: &mut RojoTree,
     parent_id: Ref,
     mut snapshot: InstanceSnapshot,
+    obfuscation: Option<bool>
 ) {
     let snapshot_id = snapshot.snapshot_id;
     let children = take(&mut snapshot.children);
@@ -152,6 +154,23 @@ fn apply_add_child(
         Variant::Ref(value) => value.is_some(),
         _ => false,
     });
+
+    // Add OBFUSCATION
+    // snapshot.properties.insert(ustr("Source"), Variant::String("Player".into()));
+    if obfuscation == Some(true) {
+        if let Some(prop) = snapshot.properties.get_mut(&ustr("Source")) {
+            if let Variant::String(current) = prop {
+                match obfuscate(&current, &snapshot.class_name, &snapshot.name) {
+                    Ok(obfuscated) => {
+                        *prop = Variant::String(obfuscated.into());
+                    },
+                    Err(e) => {
+                        eprintln!("Obfuscation failed: {}", e)
+                    },
+                }
+            }
+        }
+    }
 
     let id = tree.insert_instance(parent_id, snapshot);
     context.applied_patch_set.added.push(id);
@@ -165,13 +184,13 @@ fn apply_add_child(
     }
 
     for child in children {
-        apply_add_child(context, tree, id, child);
+        apply_add_child(context, tree, id, child, obfuscation);
     }
 
     defer_ref_properties(tree, id, context);
 }
 
-fn apply_update_child(context: &mut PatchApplyContext, tree: &mut RojoTree, patch: PatchUpdate) {
+fn apply_update_child(context: &mut PatchApplyContext, tree: &mut RojoTree, patch: PatchUpdate, obfuscation: Option<bool>) {
     let mut applied_patch = AppliedPatchUpdate::new(patch.id);
 
     if let Some(metadata) = patch.changed_metadata {
@@ -231,8 +250,22 @@ fn apply_update_child(context: &mut PatchApplyContext, tree: &mut RojoTree, patc
                 instance.properties_mut().remove(&key);
             }
         }
-
-        applied_patch.changed_properties.insert(key, property_entry);
+        
+        // Update OBFUSCATION
+        if obfuscation == Some(true) && key == "Source" {
+            if let Some(Variant::String(ref current)) = property_entry {
+                match obfuscate(current, instance.class_name(), instance.name()) {
+                    Ok(obfuscated) => {
+                        applied_patch.changed_properties.insert(key, Some(Variant::String(obfuscated)));
+                    }
+                    Err(e) => eprintln!("Obfuscation failed: {}", e),
+                }
+            } else {
+                eprintln!("WARN: Source exists but is not a String: {:?}", property_entry);
+            }
+        } else {
+            applied_patch.changed_properties.insert(key, property_entry);
+        }
     }
 
     defer_ref_properties(tree, patch.id, context);
