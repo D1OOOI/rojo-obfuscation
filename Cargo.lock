@@ -2068,15 +2068,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rojo-insta-ext"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_yaml",
-]
-
-[[package]]
-name = "rojo-obfuscation"
+name = "rojo"
 version = "7.6.1"
 dependencies = [
  "anyhow",
@@ -2132,6 +2124,14 @@ dependencies = [
  "walkdir",
  "winreg 0.10.1",
  "yaml-rust2",
+]
+
+[[package]]
+name = "rojo-insta-ext"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_yaml",
 ]
 
 [[package]]
